@@ -10,18 +10,18 @@ import base64
 from io import BytesIO
 
 # Time to wait between API check attempts in milliseconds
-COMFY_API_AVAILABLE_INTERVAL_MS = 50
+COMFY_API_AVAILABLE_INTERVAL_MS = int(os.environ.get("COMFY_API_AVAILABLE_INTERVAL_MS", "50"))
 # Maximum number of API check attempts
-COMFY_API_AVAILABLE_MAX_RETRIES = 500
+COMFY_API_AVAILABLE_MAX_RETRIES = int(os.environ.get("COMFY_API_AVAILABLE_MAX_RETRIES", "500"))
 # Time to wait between poll attempts in milliseconds
-COMFY_POLLING_INTERVAL_MS = os.environ.get("COMFY_POLLING_INTERVAL_MS", 250)
+COMFY_POLLING_INTERVAL_MS = int(os.environ.get("COMFY_POLLING_INTERVAL_MS", "250"))
 # Maximum number of poll attempts
-COMFY_POLLING_MAX_RETRIES = os.environ.get("COMFY_POLLING_MAX_RETRIES", 500)
+COMFY_POLLING_MAX_RETRIES = int(os.environ.get("COMFY_POLLING_MAX_RETRIES", "1000"))
 # Host where ComfyUI is running
 COMFY_HOST = "127.0.0.1:8188"
 # Enforce a clean state after each job is done
 # see https://docs.runpod.io/docs/handler-additional-controls#refresh-worker
-REFRESH_WORKER = os.environ.get("REFRESH_WORKER", "false").lower() == "true"
+REFRESH_WORKER = os.environ.get("REFRESH_WORKER", "true").lower() == "true"
 
 
 def validate_input(job_input):
@@ -324,17 +324,23 @@ def handler(job):
     try:
         while retries < COMFY_POLLING_MAX_RETRIES:
             history = get_history(prompt_id)
-
+            
             # Exit the loop if we have found the history
             if prompt_id in history and history[prompt_id].get("outputs"):
+                print(f"runpod-worker-comfy - generation complete after {retries} retries")
                 break
             else:
+                # Log progress every 10 retries
+                if retries % 10 == 0:
+                    print(f"runpod-worker-comfy - waiting for completion (attempt {retries}/{COMFY_POLLING_MAX_RETRIES})")
                 # Wait before trying again
                 time.sleep(COMFY_POLLING_INTERVAL_MS / 1000)
                 retries += 1
         else:
+            print(f"runpod-worker-comfy - max retries ({COMFY_POLLING_MAX_RETRIES}) reached")
             return {"error": "Max retries reached while waiting for image generation"}
     except Exception as e:
+        print(f"runpod-worker-comfy - error during polling: {str(e)}")
         return {"error": f"Error waiting for image generation: {str(e)}"}
 
     # Get the generated image and return it as URL in an AWS bucket or as base64
